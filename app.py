@@ -13,6 +13,12 @@ st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_ico
 
 os.makedirs("users_data", exist_ok=True)
 
+# Oturum (Session) Hafızası - İndir butonunun kaybolmasını engeller
+if "islem_tamam" not in st.session_state:
+    st.session_state.islem_tamam = False
+if "zip_path" not in st.session_state:
+    st.session_state.zip_path = ""
+
 def extract_json(response_text):
     match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
     if match: return json.loads(match.group(1))
@@ -172,141 +178,150 @@ else:
                 if not selected_indices:
                     st.error("Lütfen en az bir kişi seçin!")
                 else:
-                    with open(api_file, "r") as f:
-                        api_key = f.read().strip()
+                    st.session_state.islem_tamam = False 
                     
-                    genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel('gemini-2.5-flash')
-                    
-                    zip_filename = "Otomatik_Kok_Neden_Analizleri.zip"
-                    
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    with zipfile.ZipFile(zip_filename, 'w') as zipf:
-                        for i, idx in enumerate(selected_indices):
-                            row = df.loc[idx]
-                            isim = row.get('ADI SOYADI', f'Personel_{idx}')
-                            status_text.text(f"Analiz ediliyor: {isim} ({i+1}/{len(selected_indices)})")
-                            
-                            birim = get_val(row, ['BAĞLI', 'DAİRE'])
-                            gorevi = get_val(row, ['GÖREVİ'])
-                            ise_giris = get_val(row, ['İŞE', 'GİRİŞ'])
-                            if not ise_giris: ise_giris = "-"
-                            
-                            dogum_gun = get_val(row, ['DOĞUM', 'GÜN'])
-                            dogum_ay = get_val(row, ['DOĞUM', 'AY'])
-                            dogum_yil = get_val(row, ['DOĞUM', 'YIL'])
-                            dogum_tarihi = f"{dogum_gun}.{dogum_ay}.{dogum_yil}" if dogum_gun else ""
-                            
-                            kaza_gun = get_val(row, ['KAZA', 'TAR', 'GÜN'])
-                            kaza_ay = get_val(row, ['KAZA', 'TAR', 'AY'])
-                            kaza_yil = get_val(row, ['KAZA', 'TAR', 'YIL'])
-                            kaza_tarihi = f"{kaza_gun}.{kaza_ay}.{kaza_yil}" if kaza_gun else ""
-                            
-                            kaza_turu = str(get_val(row, ['KAZA', 'TÜRÜ'])).lower()
-                            kaza_turu_etiket = ""
-                            if 'ölüm' in kaza_turu: kaza_turu_etiket = "Ölüm"
-                            elif 'uzuv' in kaza_turu: kaza_turu_etiket = "Uzuv Kayıplı"
-                            elif 'tıbbi' in kaza_turu or 'ayakta' in kaza_turu or 'tedavi' in kaza_turu: kaza_turu_etiket = "Tıbbi Müdahale"
-                            elif 'hafif' in kaza_turu: kaza_turu_etiket = "Hafif Yaralanma"
-                            elif 'yaralanmasız' in kaza_turu or 'maddi' in kaza_turu: kaza_turu_etiket = "Yaralanmasız Kaza"
-                            
-                            rapor_tarihi_str = ""
-                            try:
-                                k_dt = datetime.datetime(int(kaza_yil), int(kaza_ay), int(kaza_gun))
-                                kayip_is_gunu = get_val(row, ['KAYIP', 'İŞ', 'GÜN'])
-                                try: kayip_gun_int = int(float(kayip_is_gunu))
-                                except: kayip_gun_int = 0
+                    with st.spinner('Yapay zeka analizleri gerçekleştiriyor, lütfen bu sayfadan ayrılmayın...'):
+                        with open(api_file, "r") as f:
+                            api_key = f.read().strip()
+                        
+                        genai.configure(api_key=api_key)
+                        model = genai.GenerativeModel('gemini-2.5-flash')
+                        
+                        zip_filename = f"{user_folder}/ISG_Raporlari.zip"
+                        progress_bar = st.progress(0, text="Analiz başlatılıyor...")
+                        
+                        with zipfile.ZipFile(zip_filename, 'w') as zipf:
+                            for i, idx in enumerate(selected_indices):
+                                row = df.loc[idx]
+                                isim = row.get('ADI SOYADI', f'Personel_{idx}')
                                 
-                                r_dt = k_dt + datetime.timedelta(days=kayip_gun_int)
-                                r_dt += datetime.timedelta(days=1)
-                                while r_dt.weekday() >= 5: 
-                                    r_dt += datetime.timedelta(days=1)
-                                rapor_tarihi_str = r_dt.strftime("%d.%m.%Y")
-                            except:
-                                rapor_tarihi_str = datetime.datetime.now().strftime("%d.%m.%Y")
-                            
-                            updates = {
-                                'A7': isim, 'J7': gorevi, 'R7': dogum_tarihi, 'W7': ise_giris,
-                                'AA7': birim, 'AH2': kaza_tarihi, 'AH3': rapor_tarihi_str
-                            }
-                            
-                            prompt = f"""
-                            Sen ÜST DÜZEY bir İş Sağlığı ve Güvenliği (İSG) Uzmanısın ve Kök Neden Analizi konusunda profesyonelsin.
-                            Amacın aşağıdaki kaza verilerini irdeleyerek profesyonel bir rapor oluşturmak.
-                            
-                            Kaza Verileri: {row.to_dict()}
-                            
-                            ÖNEMLİ KURALLAR:
-                            1. Düzeltici faaliyetleri (DÖF) ASLA destan gibi uzun paragraflar halinde yazma. 
-                            2. Her bir DÖF tek bir satıra rahatça sığacak kadar KISA, SADE ve NET bir cümle olmalıdır. 
-                            3. C69, C70 ve C71 hücrelerine birbirinden tamamen BAĞIMSIZ ve FARKLI birer faaliyet maddesi yaz.
-                            4. KESİNLİKLE maddelerin başına "1.", "2.", "3." gibi rakamlar, tire (-) veya nokta koyma! Şablonda rakamlar zaten var, sadece faaliyet cümlesini yaz.
-                            5. SORUMLU KİŞİ (R69, R70, R71): Bu işyeri bir belediye iştirakidir (alt işveren). İştirak firması sadece personel sağlamaktadır. Alet, ekipman temini, tadilat, tamirat, montaj ve personelin sahada görevlendirilmesi tamamen BELEDİYE'nin (Üst İşveren) sorumluluğundadır. Yazdığın DÖF maddesi ekipman temini, bakım, tamirat veya iş/görevlendirme prosedürleri ile ilgiliyse sorumlu alana kesinlikle "Üst İşveren" yaz. Eğer eğitim, evrak takibi, risk analizi gibi İSG süreçleriyse "İSG Birimi" yaz.
-                            
-                            SADECE JSON döndür. JSON Şablonu:
-                            {{
-                                "B9": "Kaza Olay Özeti: Olayın detaylarını anlatan resmi bir İSG açıklaması.",
-                                "L17": "Yaralanmanın vücuttaki tam yeri ve şiddeti.",
-                                "L19": "{kaza_tarihi}",
-                                "L21": "Olayın gerçekleştiği tam nokta/çalışma alanı",
-                                "L23": "Nasıl Gerçekleşti: Olayın oluş şeklini mekanik ve insan faktörlerini dikkate alarak açıkla.",
-                                "L25": "Hangi İş: Olay anında yapılan spesifik işin tam tipi.",
-                                "L27": "{gorevi}",
-                                "isaretlenecek_kutular": ["Seçilen Kutu 1"],
-                                "x_yazilacak_sebepler": ["Sebep 1"],
-                                "C69": "Kısa ve net birinci düzeltici faaliyet. (Başına rakam koyma)",
-                                "R69": "Birinci faaliyetin sorumlusu (Maddenin içeriğine göre İSG Birimi veya Üst İşveren)",
-                                "C70": "Kısa ve net ikinci düzeltici faaliyet. (Gerekiyorsa yaz, yoksa boş bırak. Başına rakam koyma)",
-                                "R70": "İkinci faaliyetin sorumlusu (C70 boş değilse İSG Birimi veya Üst İşveren yaz, boşsa boş bırak)",
-                                "C71": "Kısa ve net üçüncü düzeltici faaliyet. (Gerekiyorsa yaz, yoksa boş bırak. Başına rakam koyma)",
-                                "R71": "Üçüncü faaliyetin sorumlusu (C71 boş değilse İSG Birimi veya Üst İşveren yaz, boşsa boş bırak)"
-                            }}
-                            
-                            'isaretlenecek_kutular' listesine ŞU KELİMELERDEN olaya en uygun olanları (en fazla 4 tane) seç:
-                            Hareketli Aksamlar, El Aletleri, Düşen Malzeme, Elle Taşıma, Yüksekten Düşme, Yakalanma / Kaptırma, Takılma, Kayma, Düşme, İki Nesne Arasına Sıkışma, Lider ve Yönetim, Kişisel Koruyucu Donanım, Görev Analizleri ve Prosedürleri, Eksik / yetersiz talimat, Prosedür ve kuralların takip edilmemesi.
-                            NOT: Eğer kazaya neden olan etmenler bu listedekilerden hiçbirine uymuyorsa, metin olarak açıklama YAPMA. SADECE "Diğer..." kelimesini listeye ekle.
-                            
-                            'x_yazilacak_sebepler' listesine ŞU KELİMELERDEN olaya en uygun Görünür ve Temel Sebepleri (en fazla 5 tane) seçip ekle:
-                            Ekipmanı izinsiz kullanmak, KKD kullanımında ihmal, Prosedür ve kuralları takip etmemek, Dikkatsiz çalışma, Yetersiz veya uygunsuz KKD, Tehlikeli çevre koşulları: gazlar, tozlar, Yetersiz talimat olması, Yetersiz prosedür olması, Fiziksel uygunsuzluk, Zihinsel uygunsuzluk, Bilgi eksikliği, İşin gerektirdiği tecrübede eksiklik, Alışkanlıklar, Lider eksikliği, Görev tanımı yapılmaması, İş güvenliği kuralları yetersizliği, Beceri eksikliği, Fiziksel stres, Zihinsel stres, Yetersiz motivasyon, Uygunsuz davranış, Yaptırım yetersizliği, Denetim yetersizliği, Uygun olmayan görevlendirme
-                            """
-                            
-                            max_deneme = 3
-                            for deneme in range(max_deneme):
+                                # İlerleme çubuğunu güncelle
+                                progress_bar.progress((i) / len(selected_indices), text=f"Analiz ediliyor: {isim} ({i+1}/{len(selected_indices)})")
+                                
+                                birim = get_val(row, ['BAĞLI', 'DAİRE'])
+                                gorevi = get_val(row, ['GÖREVİ'])
+                                ise_giris = get_val(row, ['İŞE', 'GİRİŞ'])
+                                if not ise_giris: ise_giris = "-"
+                                
+                                dogum_gun = get_val(row, ['DOĞUM', 'GÜN'])
+                                dogum_ay = get_val(row, ['DOĞUM', 'AY'])
+                                dogum_yil = get_val(row, ['DOĞUM', 'YIL'])
+                                dogum_tarihi = f"{dogum_gun}.{dogum_ay}.{dogum_yil}" if dogum_gun else ""
+                                
+                                kaza_gun = get_val(row, ['KAZA', 'TAR', 'GÜN'])
+                                kaza_ay = get_val(row, ['KAZA', 'TAR', 'AY'])
+                                kaza_yil = get_val(row, ['KAZA', 'TAR', 'YIL'])
+                                kaza_tarihi = f"{kaza_gun}.{kaza_ay}.{kaza_yil}" if kaza_gun else ""
+                                
+                                kaza_turu = str(get_val(row, ['KAZA', 'TÜRÜ'])).lower()
+                                kaza_turu_etiket = ""
+                                if 'ölüm' in kaza_turu: kaza_turu_etiket = "Ölüm"
+                                elif 'uzuv' in kaza_turu: kaza_turu_etiket = "Uzuv Kayıplı"
+                                elif 'tıbbi' in kaza_turu or 'ayakta' in kaza_turu or 'tedavi' in kaza_turu: kaza_turu_etiket = "Tıbbi Müdahale"
+                                elif 'hafif' in kaza_turu: kaza_turu_etiket = "Hafif Yaralanma"
+                                elif 'yaralanmasız' in kaza_turu or 'maddi' in kaza_turu: kaza_turu_etiket = "Yaralanmasız Kaza"
+                                
+                                rapor_tarihi_str = ""
                                 try:
-                                    response = model.generate_content(prompt)
-                                    ai_data = extract_json(response.text)
+                                    k_dt = datetime.datetime(int(kaza_yil), int(kaza_ay), int(kaza_gun))
+                                    kayip_is_gunu = get_val(row, ['KAYIP', 'İŞ', 'GÜN'])
+                                    try: kayip_gun_int = int(float(kayip_is_gunu))
+                                    except: kayip_gun_int = 0
                                     
-                                    kutular = ai_data.pop("isaretlenecek_kutular", [])
-                                    if kaza_turu_etiket: kutular.append(kaza_turu_etiket)
-                                    
-                                    x_sebepler = ai_data.pop("x_yazilacak_sebepler", [])
-                                    for sebep in x_sebepler:
-                                        if sebep in HUCRE_X_HARITASI:
-                                            updates[HUCRE_X_HARITASI[sebep]] = "X"
-                                            
-                                    updates.update(ai_data)
-                                    out_name = f"{isim.replace(' ', '_')}_Raporu.xlsx"
-                                    update_excel_template(template_file, out_name, updates, kutular)
-                                    
-                                    zipf.write(out_name)
-                                    os.remove(out_name)
-                                    
-                                    time.sleep(6) 
-                                    break 
-                                    
-                                except Exception as e:
-                                    hata_msaji = str(e).lower()
-                                    if "429" in hata_msaji or "quota" in hata_msaji or "exhausted" in hata_msaji:
-                                        status_text.text(f"API Limiti doldu, 15 saniye bekleniyor... (Deneme {deneme+1}/{max_deneme})")
-                                        time.sleep(15)
-                                    else:
-                                        st.error(f"{isim} hatası: {e}")
+                                    r_dt = k_dt + datetime.timedelta(days=kayip_gun_int)
+                                    r_dt += datetime.timedelta(days=1)
+                                    while r_dt.weekday() >= 5: 
+                                        r_dt += datetime.timedelta(days=1)
+                                    rapor_tarihi_str = r_dt.strftime("%d.%m.%Y")
+                                except:
+                                    rapor_tarihi_str = datetime.datetime.now().strftime("%d.%m.%Y")
+                                
+                                updates = {
+                                    'A7': isim, 'J7': gorevi, 'R7': dogum_tarihi, 'W7': ise_giris,
+                                    'AA7': birim, 'AH2': kaza_tarihi, 'AH3': rapor_tarihi_str
+                                }
+                                
+                                prompt = f"""
+                                Sen ÜST DÜZEY bir İş Sağlığı ve Güvenliği (İSG) Uzmanısın ve Kök Neden Analizi konusunda profesyonelsin.
+                                Amacın aşağıdaki kaza verilerini irdeleyerek profesyonel bir rapor oluşturmak.
+                                
+                                Kaza Verileri: {row.to_dict()}
+                                
+                                ÖNEMLİ KURALLAR:
+                                1. Düzeltici faaliyetleri (DÖF) ASLA destan gibi uzun paragraflar halinde yazma. 
+                                2. Her bir DÖF tek bir satıra rahatça sığacak kadar KISA, SADE ve NET bir cümle olmalıdır. 
+                                3. C69, C70 ve C71 hücrelerine birbirinden tamamen BAĞIMSIZ ve FARKLI birer faaliyet maddesi yaz.
+                                4. KESİNLİKLE maddelerin başına "1.", "2.", "3." gibi rakamlar, tire (-) veya nokta koyma! Şablonda rakamlar zaten var, sadece faaliyet cümlesini yaz.
+                                5. SORUMLU KİŞİ (R69, R70, R71): Bu işyeri bir belediye iştirakidir (alt işveren). İştirak firması sadece personel sağlamaktadır. Alet, ekipman temini, tadilat, tamirat, montaj ve personelin sahada görevlendirilmesi tamamen BELEDİYE'nin (Üst İşveren) sorumluluğundadır. Yazdığın DÖF maddesi ekipman temini, bakım, tamirat veya iş/görevlendirme prosedürleri ile ilgiliyse sorumlu alana kesinlikle "Üst İşveren" yaz. Eğer eğitim, evrak takibi, risk analizi gibi İSG süreçleriyse "İSG Birimi" yaz.
+                                
+                                SADECE JSON döndür. JSON Şablonu:
+                                {{
+                                    "B9": "Kaza Olay Özeti: Olayın detaylarını anlatan resmi bir İSG açıklaması.",
+                                    "L17": "Yaralanmanın vücuttaki tam yeri ve şiddeti.",
+                                    "L19": "{kaza_tarihi}",
+                                    "L21": "Olayın gerçekleştiği tam nokta/çalışma alanı",
+                                    "L23": "Nasıl Gerçekleşti: Olayın oluş şeklini mekanik ve insan faktörlerini dikkate alarak açıkla.",
+                                    "L25": "Hangi İş: Olay anında yapılan spesifik işin tam tipi.",
+                                    "L27": "{gorevi}",
+                                    "isaretlenecek_kutular": ["Seçilen Kutu 1"],
+                                    "x_yazilacak_sebepler": ["Sebep 1"],
+                                    "C69": "Kısa ve net birinci düzeltici faaliyet. (Başına rakam koyma)",
+                                    "R69": "Birinci faaliyetin sorumlusu (Maddenin içeriğine göre İSG Birimi veya Üst İşveren)",
+                                    "C70": "Kısa ve net ikinci düzeltici faaliyet. (Gerekiyorsa yaz, yoksa boş bırak. Başına rakam koyma)",
+                                    "R70": "İkinci faaliyetin sorumlusu (C70 boş değilse İSG Birimi veya Üst İşveren yaz, boşsa boş bırak)",
+                                    "C71": "Kısa ve net üçüncü düzeltici faaliyet. (Gerekiyorsa yaz, yoksa boş bırak. Başına rakam koyma)",
+                                    "R71": "Üçüncü faaliyetin sorumlusu (C71 boş değilse İSG Birimi veya Üst İşveren yaz, boşsa boş bırak)"
+                                }}
+                                
+                                'isaretlenecek_kutular' listesine ŞU KELİMELERDEN olaya en uygun olanları (en fazla 4 tane) seç:
+                                Hareketli Aksamlar, El Aletleri, Düşen Malzeme, Elle Taşıma, Yüksekten Düşme, Yakalanma / Kaptırma, Takılma, Kayma, Düşme, İki Nesne Arasına Sıkışma, Lider ve Yönetim, Kişisel Koruyucu Donanım, Görev Analizleri ve Prosedürleri, Eksik / yetersiz talimat, Prosedür ve kuralların takip edilmemesi.
+                                NOT: Eğer kazaya neden olan etmenler bu listedekilerden hiçbirine uymuyorsa, metin olarak açıklama YAPMA. SADECE "Diğer..." kelimesini listeye ekle.
+                                
+                                'x_yazilacak_sebepler' listesine ŞU KELİMELERDEN olaya en uygun Görünür ve Temel Sebepleri (en fazla 5 tane) seçip ekle:
+                                Ekipmanı izinsiz kullanmak, KKD kullanımında ihmal, Prosedür ve kuralları takip etmemek, Dikkatsiz çalışma, Yetersiz veya uygunsuz KKD, Tehlikeli çevre koşulları: gazlar, tozlar, Yetersiz talimat olması, Yetersiz prosedür olması, Fiziksel uygunsuzluk, Zihinsel uygunsuzluk, Bilgi eksikliği, İşin gerektirdiği tecrübede eksiklik, Alışkanlıklar, Lider eksikliği, Görev tanımı yapılmaması, İş güvenliği kuralları yetersizliği, Beceri eksikliği, Fiziksel stres, Zihinsel stres, Yetersiz motivasyon, Uygunsuz davranış, Yaptırım yetersizliği, Denetim yetersizliği, Uygun olmayan görevlendirme
+                                """
+                                
+                                max_deneme = 3
+                                for deneme in range(max_deneme):
+                                    try:
+                                        response = model.generate_content(prompt)
+                                        ai_data = extract_json(response.text)
+                                        
+                                        kutular = ai_data.pop("isaretlenecek_kutular", [])
+                                        if kaza_turu_etiket: kutular.append(kaza_turu_etiket)
+                                        
+                                        x_sebepler = ai_data.pop("x_yazilacak_sebepler", [])
+                                        for sebep in x_sebepler:
+                                            if sebep in HUCRE_X_HARITASI:
+                                                updates[HUCRE_X_HARITASI[sebep]] = "X"
+                                                
+                                        updates.update(ai_data)
+                                        out_name = f"{isim.replace(' ', '_')}_Raporu.xlsx"
+                                        update_excel_template(template_file, out_name, updates, kutular)
+                                        
+                                        zipf.write(out_name)
+                                        os.remove(out_name)
+                                        
+                                        time.sleep(6) 
                                         break 
                                         
-                            progress_bar.progress((i + 1) / len(selected_indices))
+                                    except Exception as e:
+                                        hata_msaji = str(e).lower()
+                                        if "429" in hata_msaji or "quota" in hata_msaji or "exhausted" in hata_msaji:
+                                            progress_bar.progress((i) / len(selected_indices), text=f"API Limiti doldu, 15sn bekleniyor... ({isim})")
+                                            time.sleep(15)
+                                        else:
+                                            st.error(f"{isim} hatası: {e}")
+                                            break 
                             
-                    status_text.text("🎉 Tüm Raporlar Hazır!")
-                    with open(zip_filename, "rb") as f:
-                        st.download_button("📥 Raporları İndir (ZIP)", f, file_name="ISG_Raporlari.zip", mime="application/zip")
+                            # Yüzde 100 tamamlandı
+                            progress_bar.progress(1.0, text="Analiz tamamlandı!")
+                            
+                        st.session_state.islem_tamam = True
+                        st.session_state.zip_path = zip_filename
+
+            # İndirme Butonunu her zaman göster (İşlem tamamlanmışsa)
+            if st.session_state.islem_tamam and os.path.exists(st.session_state.zip_path):
+                st.success("🎉 Raporlar başarıyla oluşturuldu!")
+                with open(st.session_state.zip_path, "rb") as f:
+                    st.download_button("📥 Raporları İndir (ZIP)", f, file_name="ISG_Raporlari.zip", mime="application/zip")

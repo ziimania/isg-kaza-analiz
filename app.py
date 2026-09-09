@@ -127,13 +127,19 @@ with st.sidebar:
         current_api = ""
         if os.path.exists(api_file):
             with open(api_file, "r") as f:
-                current_api = f.read()
+                current_api = f.read().strip()
                 
         new_api = st.text_input("Gemini API Anahtarınız:", value=current_api, type="password")
-        if new_api != current_api:
-            with open(api_file, "w") as f:
-                f.write(new_api)
-            st.success("API Anahtarı Kaydedildi!")
+        
+        # YENİ EKLENEN BUTON: Kaydetme işlemini zorlar
+        if st.button("💾 API Anahtarını Kaydet"):
+            if new_api.strip() == "":
+                st.error("Lütfen geçerli bir anahtar girin!")
+            else:
+                with open(api_file, "w") as f:
+                    f.write(new_api.strip())
+                st.success("API Anahtarı Kaydedildi!")
+                st.rerun()
             
         if os.path.exists(template_file):
             st.success("✅ Şablon Yüklü")
@@ -154,8 +160,15 @@ else:
     api_file = f"{user_folder}/api_key.txt"
     template_file = f"{user_folder}/template.xlsx"
     
-    if not os.path.exists(api_file) or not os.path.exists(template_file):
-        st.warning("👈 Lütfen sol menüden API anahtarınızı ve Boş Şablonunuzu yükleyin.")
+    # KONTROL DÜZELTİLDİ: Dosya sadece var mı diye değil, içi dolu mu diye de bakıyoruz.
+    api_dolu = False
+    if os.path.exists(api_file):
+        with open(api_file, "r") as f:
+            if f.read().strip() != "":
+                api_dolu = True
+                
+    if not api_dolu or not os.path.exists(template_file):
+        st.warning("👈 Lütfen sol menüden API anahtarınızı kaydedin ve Boş Şablonunuzu yükleyin.")
     else:
         st.write("### 📝 Kaza Verisi Yükle")
         data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel) Yükleyin", type=["xlsx"])
@@ -195,7 +208,6 @@ else:
                                 row = df.loc[idx]
                                 isim = row.get('ADI SOYADI', f'Personel_{idx}')
                                 
-                                # İlerleme çubuğunu güncelle
                                 progress_bar.progress((i) / len(selected_indices), text=f"Analiz ediliyor: {isim} ({i+1}/{len(selected_indices)})")
                                 
                                 birim = get_val(row, ['BAĞLI', 'DAİRE'])
@@ -314,13 +326,11 @@ else:
                                             st.error(f"{isim} hatası: {e}")
                                             break 
                             
-                            # Yüzde 100 tamamlandı
                             progress_bar.progress(1.0, text="Analiz tamamlandı!")
                             
                         st.session_state.islem_tamam = True
                         st.session_state.zip_path = zip_filename
 
-            # İndirme Butonunu her zaman göster (İşlem tamamlanmışsa)
             if st.session_state.islem_tamam and os.path.exists(st.session_state.zip_path):
                 st.success("🎉 Raporlar başarıyla oluşturuldu!")
                 with open(st.session_state.zip_path, "rb") as f:

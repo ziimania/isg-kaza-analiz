@@ -11,8 +11,8 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-if not os.path.exists("users_data"):
-    os.makedirs("users_data")
+# HATA ÇÖZÜMÜ: Klasör zaten varsa hata vermesini engelleyen exist_ok=True eklendi.
+os.makedirs("users_data", exist_ok=True)
 
 def extract_json(response_text):
     match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
@@ -39,7 +39,6 @@ def sanitize_text(text):
     text = re.sub(r'[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]', '', text)
     return saxutils.escape(text)
 
-# "Diğer..." KUTUCUĞU HARİTAYA EKLENDİ
 CHECKBOX_MAP = {
   "Ölüm": "xl/ctrlProps/ctrlProp1.xml", "Uzuv Kayıplı": "xl/ctrlProps/ctrlProp2.xml",
   "Tıbbi Müdahale": "xl/ctrlProps/ctrlProp3.xml", "Hafif Yaralanma": "xl/ctrlProps/ctrlProp4.xml",
@@ -118,8 +117,8 @@ with st.sidebar:
     
     if profil_adi:
         user_folder = f"users_data/{profil_adi.replace(' ', '_')}"
-        if not os.path.exists(user_folder):
-            os.makedirs(user_folder)
+        # HATA ÇÖZÜMÜ: Profil klasörü için de exist_ok=True eklendi.
+        os.makedirs(user_folder, exist_ok=True)
             
         api_file = f"{user_folder}/api_key.txt"
         template_file = f"{user_folder}/template.xlsx"

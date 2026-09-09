@@ -163,17 +163,61 @@ else:
         st.warning("👈 Lütfen sol menüden API anahtarınızı kaydedin.")
     else:
         st.write("### 📝 Kaza Verisi Yükle")
-        data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel) Yükleyin", type=["xlsx"])
+        # .xlsm ve .xlsx formatları desteklenecek şekilde güncellendi
+        data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel / .xlsm) Yükleyin", type=["xlsx", "xlsm"])
         
         if data_file:
             df = pd.read_excel(data_file)
             df.columns = df.columns.str.strip().str.upper()
             df = df.dropna(subset=['ADI SOYADI'])
             
-            st.write("### 🔍 Analiz Edilecek Kazaları Seçin")
+            # --- ŞIK FİLTRELEME ARAÇLARI (DİLİMCİ / MULTİSELECT) ---
+            st.markdown("---")
+            st.subheader("🔍 Hızlı Filtreleme Paneli")
+            
+            # İlgili sütunları dinamik bulma
+            col_uzman, col_ay, col_daire = st.columns(3)
+            
+            # Uzman sütununu bul
+            uzman_col_name = next((c for c in df.columns if 'UZMAN' in c or 'İSG' in c), None)
+            ay_col_name = next((c for c in df.columns if 'AY' in c and ('KAZA' in c or 'TAR' in c)), None)
+            daire_col_name = next((c for c in df.columns if 'DAİRE' in c or 'BAĞLI' in c or 'BİRİM' in c), None)
+            
+            filtered_df = df.copy()
+            
+            with col_uzman:
+                if uzman_col_name:
+                    unique_uzmanlar = sorted(df[uzman_col_name].dropna().astype(str).unique())
+                    secilen_uzmanlar = st.multiselect("İş Güvenliği Uzmanı", unique_uzmanlar, default=[])
+                    if secilen_uzmanlar:
+                        filtered_df = filtered_df[filtered_df[uzman_col_name].astype(str).isin(secilen_uzmanlar)]
+                else:
+                    st.info("İş Güvenliği Uzmanı sütunu bulunamadı.")
+                    
+            with col_ay:
+                if ay_col_name:
+                    unique_aylar = sorted(df[ay_col_name].dropna().astype(str).unique())
+                    secilen_aylar = st.multiselect("Kaza Tarihi (Ay)", unique_aylar, default=[])
+                    if secilen_aylar:
+                        filtered_df = filtered_df[filtered_df[ay_col_name].astype(str).isin(secilen_aylar)]
+                else:
+                    st.info("Kaza Ayı sütunu bulunamadı.")
+                    
+            with col_daire:
+                if daire_col_name:
+                    unique_daireler = sorted(df[daire_col_name].dropna().astype(str).unique())
+                    secilen_daireler = st.multiselect("Bağlı Bulunduğu Daire", unique_daireler, default=[])
+                    if secilen_daireler:
+                        filtered_df = filtered_df[filtered_df[daire_col_name].astype(str).isin(secilen_daireler)]
+                else:
+                    st.info("Daire Başkanlığı sütunu bulunamadı.")
+            
+            st.markdown("---")
+            st.write(f"### 📋 Analiz Edilecek Kazalar (Filtrelenen: {len(filtered_df)} / Toplam: {len(df)})")
+            
             selected_indices = []
             
-            for idx, row in df.iterrows():
+            for idx, row in filtered_df.iterrows():
                 isim = row.get('ADI SOYADI', f'Personel_{idx}')
                 kaza_turu = str(row.get('KAZA TÜRÜ', ''))
                 if st.checkbox(f"{isim} - {kaza_turu}", key=f"chk_{idx}"):
@@ -190,7 +234,6 @@ else:
                             api_key = f.read().strip()
                         
                         genai.configure(api_key=api_key)
-                        # MODEL GÜNCELLENDİ: Yeni hesaplarda hata vermemesi için gemini-3.6-flash yapıldı
                         model = genai.GenerativeModel('gemini-3.6-flash')
                         
                         zip_filename = f"{user_folder}/ISG_Raporlari.zip"

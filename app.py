@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-# Oturum (Session) Hafızası Kontrolleri
+# Oturum (Session) Hafızası Başlatma
 if "islem_tamam" not in st.session_state:
     st.session_state.islem_tamam = False
 if "zip_path" not in st.session_state:
@@ -120,15 +120,16 @@ with st.sidebar:
     profil_adi = st.text_input("Profil Adınız:", value="")
     
     if profil_adi:
-        new_api = st.text_input("Gemini API Anahtarınız:", value=st.session_state.api_key, type="password")
+        # Doğrudan oturum hafızasına bağlanan input alanı
+        api_input = st.text_input("Gemini API Anahtarınız:", value=st.session_state.api_key, type="password")
         
-        if st.button("💾 API Anahtarını Kaydet"):
-            if new_api.strip() == "":
-                st.error("Lütfen geçerli bir anahtar girin!")
-            else:
-                st.session_state.api_key = new_api.strip()
-                st.success("API Anahtarı Bu Oturum İçin Kaydedildi!")
-                st.rerun()
+        if api_input != st.session_state.api_key:
+            st.session_state.api_key = api_input.strip()
+            
+        if st.session_state.api_key:
+            st.success("✅ API Anahtarı Aktif ve Kayıtlı")
+        else:
+            st.warning("⚠️ Lütfen API anahtarınızı girin")
         
         st.markdown("---")
         if os.path.exists(MERKEZI_SABLON):
@@ -142,7 +143,7 @@ else:
     if not os.path.exists(MERKEZI_SABLON):
         st.error("⚠️ Sistemde ana şablon ('template.xlsx') bulunamadı. Lütfen GitHub deposuna bu dosyayı yükleyin.")
     elif not st.session_state.api_key:
-        st.warning("👈 Lütfen sol menüden API anahtarınızı girip kaydedin.")
+        st.warning("👈 Lütfen sol menüden API anahtarınızı girin.")
     else:
         st.write("### 📝 Kaza Verisi Yükle")
         data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel / .xlsm) Yükleyin", type=["xlsx", "xlsm"])

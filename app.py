@@ -11,12 +11,13 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-os.makedirs("users_data", exist_ok=True)
-
+# Oturum (Session) Hafızası Kontrolleri
 if "islem_tamam" not in st.session_state:
     st.session_state.islem_tamam = False
 if "zip_path" not in st.session_state:
     st.session_state.zip_path = ""
+if "api_key" not in st.session_state:
+    st.session_state.api_key = ""
 
 def extract_json(response_text):
     match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
@@ -110,33 +111,23 @@ def update_excel_template(template_path, output_path, updates_dict, labels_to_ch
                 zout.writestr(item.filename, zin.read(item.filename))
 
 MERKEZI_SABLON = "template.xlsx"
+os.makedirs("temp_reports", exist_ok=True)
 
 st.title("🛡️ İSG Kök Neden Analizi Otomasyonu")
 
 with st.sidebar:
-    st.header("⚙️ Profil ve Ayarlar")
-    profil_adi = st.text_input("Profil Adınız (Sizi hatırlamamız için):", value="")
+    st.header("⚙️ Profil ve Güvenli Ayarlar")
+    profil_adi = st.text_input("Profil Adınız:", value="")
     
     if profil_adi:
-        user_folder = f"users_data/{profil_adi.replace(' ', '_')}"
-        os.makedirs(user_folder, exist_ok=True)
-            
-        api_file = f"{user_folder}/api_key.txt"
-        
-        current_api = ""
-        if os.path.exists(api_file):
-            with open(api_file, "r") as f:
-                current_api = f.read().strip()
-                
-        new_api = st.text_input("Gemini API Anahtarınız:", value=current_api, type="password")
+        new_api = st.text_input("Gemini API Anahtarınız:", value=st.session_state.api_key, type="password")
         
         if st.button("💾 API Anahtarını Kaydet"):
             if new_api.strip() == "":
                 st.error("Lütfen geçerli bir anahtar girin!")
             else:
-                with open(api_file, "w") as f:
-                    f.write(new_api.strip())
-                st.success("API Anahtarı Kaydedildi!")
+                st.session_state.api_key = new_api.strip()
+                st.success("API Anahtarı Bu Oturum İçin Kaydedildi!")
                 st.rerun()
         
         st.markdown("---")
@@ -148,22 +139,12 @@ with st.sidebar:
 if not profil_adi:
     st.info("👈 Lütfen sol menüden Profil Adınızı girerek başlayın.")
 else:
-    user_folder = f"users_data/{profil_adi.replace(' ', '_')}"
-    api_file = f"{user_folder}/api_key.txt"
-    
-    api_dolu = False
-    if os.path.exists(api_file):
-        with open(api_file, "r") as f:
-            if f.read().strip() != "":
-                api_dolu = True
-                
     if not os.path.exists(MERKEZI_SABLON):
         st.error("⚠️ Sistemde ana şablon ('template.xlsx') bulunamadı. Lütfen GitHub deposuna bu dosyayı yükleyin.")
-    elif not api_dolu:
-        st.warning("👈 Lütfen sol menüden API anahtarınızı kaydedin.")
+    elif not st.session_state.api_key:
+        st.warning("👈 Lütfen sol menüden API anahtarınızı girip kaydedin.")
     else:
         st.write("### 📝 Kaza Verisi Yükle")
-        # .xlsm ve .xlsx formatları desteklenecek şekilde güncellendi
         data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel / .xlsm) Yükleyin", type=["xlsx", "xlsm"])
         
         if data_file:
@@ -171,14 +152,11 @@ else:
             df.columns = df.columns.str.strip().str.upper()
             df = df.dropna(subset=['ADI SOYADI'])
             
-            # --- ŞIK FİLTRELEME ARAÇLARI (DİLİMCİ / MULTİSELECT) ---
             st.markdown("---")
             st.subheader("🔍 Hızlı Filtreleme Paneli")
             
-            # İlgili sütunları dinamik bulma
             col_uzman, col_ay, col_daire = st.columns(3)
             
-            # Uzman sütununu bul
             uzman_col_name = next((c for c in df.columns if 'UZMAN' in c or 'İSG' in c), None)
             ay_col_name = next((c for c in df.columns if 'AY' in c and ('KAZA' in c or 'TAR' in c)), None)
             daire_col_name = next((c for c in df.columns if 'DAİRE' in c or 'BAĞLI' in c or 'BİRİM' in c), None)
@@ -230,13 +208,10 @@ else:
                     st.session_state.islem_tamam = False 
                     
                     with st.spinner('Yapay zeka analizleri gerçekleştiriyor, lütfen bu sayfadan ayrılmayın...'):
-                        with open(api_file, "r") as f:
-                            api_key = f.read().strip()
-                        
-                        genai.configure(api_key=api_key)
+                        genai.configure(api_key=st.session_state.api_key)
                         model = genai.GenerativeModel('gemini-3.6-flash')
                         
-                        zip_filename = f"{user_folder}/ISG_Raporlari.zip"
+                        zip_filename = f"temp_reports/ISG_Raporlari_{profil_adi.replace(' ', '_')}.zip"
                         progress_bar = st.progress(0, text="Analiz başlatılıyor...")
                         
                         with zipfile.ZipFile(zip_filename, 'w') as zipf:
@@ -344,10 +319,10 @@ else:
                                                 updates[HUCRE_X_HARITASI[sebep]] = "X"
                                                 
                                         updates.update(ai_data)
-                                        out_name = f"{isim.replace(' ', '_')}_Raporu.xlsx"
+                                        out_name = f"temp_reports/{isim.replace(' ', '_')}_Raporu.xlsx"
                                         update_excel_template(MERKEZI_SABLON, out_name, updates, kutular)
                                         
-                                        zipf.write(out_name)
+                                        zipf.write(out_name, arcname=os.path.basename(out_name))
                                         os.remove(out_name)
                                         
                                         time.sleep(6) 

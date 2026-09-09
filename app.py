@@ -109,6 +109,9 @@ def update_excel_template(template_path, output_path, updates_dict, labels_to_ch
             else:
                 zout.writestr(item.filename, zin.read(item.filename))
 
+# ANA ŞABLON YOLU (Github'daki ana klasörde bulunmalı)
+MERKEZI_SABLON = "template.xlsx"
+
 st.title("🛡️ İSG Kök Neden Analizi Otomasyonu")
 
 with st.sidebar:
@@ -120,7 +123,6 @@ with st.sidebar:
         os.makedirs(user_folder, exist_ok=True)
             
         api_file = f"{user_folder}/api_key.txt"
-        template_file = f"{user_folder}/template.xlsx"
         
         current_api = ""
         if os.path.exists(api_file):
@@ -137,25 +139,19 @@ with st.sidebar:
                     f.write(new_api.strip())
                 st.success("API Anahtarı Kaydedildi!")
                 st.rerun()
-            
-        if os.path.exists(template_file):
-            st.success("✅ Şablon Yüklü")
+        
+        st.markdown("---")
+        # Merkezi şablon kontrolü
+        if os.path.exists(MERKEZI_SABLON):
+            st.success("✅ Merkezi Şablon Sistemde Yüklü")
         else:
-            st.warning("⚠️ Şablon Yüklü Değil")
-            
-        uploaded_template = st.file_uploader("Orijinal Boş Şablonu Yükle / Güncelle", type=["xlsx"])
-        if uploaded_template:
-            with open(template_file, "wb") as f:
-                f.write(uploaded_template.getbuffer())
-            st.success("Şablon başarıyla kaydedildi!")
-            st.rerun()
+            st.error("⚠️ Merkezi Şablon (template.xlsx) Bulunamadı!")
 
 if not profil_adi:
     st.info("👈 Lütfen sol menüden Profil Adınızı girerek başlayın.")
 else:
     user_folder = f"users_data/{profil_adi.replace(' ', '_')}"
     api_file = f"{user_folder}/api_key.txt"
-    template_file = f"{user_folder}/template.xlsx"
     
     api_dolu = False
     if os.path.exists(api_file):
@@ -163,8 +159,10 @@ else:
             if f.read().strip() != "":
                 api_dolu = True
                 
-    if not api_dolu or not os.path.exists(template_file):
-        st.warning("👈 Lütfen sol menüden API anahtarınızı kaydedin ve Boş Şablonunuzu yükleyin.")
+    if not os.path.exists(MERKEZI_SABLON):
+        st.error("⚠️ Sistemde ana şablon ('template.xlsx') bulunamadı. Lütfen yöneticinizden GitHub deposuna bu dosyayı yüklemesini isteyin.")
+    elif not api_dolu:
+        st.warning("👈 Lütfen sol menüden API anahtarınızı kaydedin.")
     else:
         st.write("### 📝 Kaza Verisi Yükle")
         data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel) Yükleyin", type=["xlsx"])
@@ -305,7 +303,8 @@ else:
                                                 
                                         updates.update(ai_data)
                                         out_name = f"{isim.replace(' ', '_')}_Raporu.xlsx"
-                                        update_excel_template(template_file, out_name, updates, kutular)
+                                        # Şablon olarak artık merkezi dosyayı gönderiyoruz
+                                        update_excel_template(MERKEZI_SABLON, out_name, updates, kutular)
                                         
                                         zipf.write(out_name)
                                         os.remove(out_name)

@@ -11,7 +11,6 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-# HATA ÇÖZÜMÜ: Klasör zaten varsa hata vermesini engelleyen exist_ok=True eklendi.
 os.makedirs("users_data", exist_ok=True)
 
 def extract_json(response_text):
@@ -78,9 +77,6 @@ def safe_update_sheet1(sheet_xml, coord, new_value):
         end_idx = match.end() + end_match.end()
         
     attrs = re.sub(r'\s+t="[^"]*"', '', attrs)
-    
-    if coord.startswith('L') or coord.startswith('B9') or coord.startswith('C69') or coord.startswith('C70') or coord.startswith('C71'):
-        attrs = re.sub(r'\s+s="[^"]*"', '', attrs)
         
     safe_value = sanitize_text(new_value)
     new_cell = f'<{attrs} t="inlineStr"><is><t>{safe_value}</t></is></c>'
@@ -117,7 +113,6 @@ with st.sidebar:
     
     if profil_adi:
         user_folder = f"users_data/{profil_adi.replace(' ', '_')}"
-        # HATA ÇÖZÜMÜ: Profil klasörü için de exist_ok=True eklendi.
         os.makedirs(user_folder, exist_ok=True)
             
         api_file = f"{user_folder}/api_key.txt"
@@ -246,7 +241,9 @@ else:
                             ÖNEMLİ KURALLAR:
                             1. Düzeltici faaliyetleri (DÖF) ASLA destan gibi uzun paragraflar halinde yazma. 
                             2. Her bir DÖF tek bir satıra rahatça sığacak kadar KISA, SADE ve NET bir cümle olmalıdır. 
-                            3. Aynı cümleyi zorla satırlara bölme; C69, C70 ve C71 hücrelerine birbirinden tamamen BAĞIMSIZ ve FARKLI birer faaliyet maddesi yaz.
+                            3. C69, C70 ve C71 hücrelerine birbirinden tamamen BAĞIMSIZ ve FARKLI birer faaliyet maddesi yaz.
+                            4. KESİNLİKLE maddelerin başına "1.", "2.", "3." gibi rakamlar, tire (-) veya nokta koyma! Şablonda rakamlar zaten var, sadece faaliyet cümlesini yaz.
+                            5. SORUMLU KİŞİ (R69, R70, R71): Bu işyeri bir belediye iştirakidir (alt işveren). İştirak firması sadece personel sağlamaktadır. Alet, ekipman temini, tadilat, tamirat, montaj ve personelin sahada görevlendirilmesi tamamen BELEDİYE'nin (Üst İşveren) sorumluluğundadır. Yazdığın DÖF maddesi ekipman temini, bakım, tamirat veya iş/görevlendirme prosedürleri ile ilgiliyse sorumlu alana kesinlikle "Üst İşveren" yaz. Eğer eğitim, evrak takibi, risk analizi gibi İSG süreçleriyse "İSG Birimi" yaz.
                             
                             SADECE JSON döndür. JSON Şablonu:
                             {{
@@ -259,10 +256,12 @@ else:
                                 "L27": "{gorevi}",
                                 "isaretlenecek_kutular": ["Seçilen Kutu 1"],
                                 "x_yazilacak_sebepler": ["Sebep 1"],
-                                "C69": "1. Kısa ve net birinci düzeltici faaliyet.",
-                                "C70": "2. Kısa ve net ikinci düzeltici faaliyet (Gerekiyorsa yaz, yoksa boş bırak).",
-                                "C71": "3. Kısa ve net üçüncü düzeltici faaliyet (Gerekiyorsa yaz, yoksa boş bırak).",
-                                "R69": "İSG Birimi"
+                                "C69": "Kısa ve net birinci düzeltici faaliyet. (Başına rakam koyma)",
+                                "R69": "Birinci faaliyetin sorumlusu (Maddenin içeriğine göre İSG Birimi veya Üst İşveren)",
+                                "C70": "Kısa ve net ikinci düzeltici faaliyet. (Gerekiyorsa yaz, yoksa boş bırak. Başına rakam koyma)",
+                                "R70": "İkinci faaliyetin sorumlusu (C70 boş değilse İSG Birimi veya Üst İşveren yaz, boşsa boş bırak)",
+                                "C71": "Kısa ve net üçüncü düzeltici faaliyet. (Gerekiyorsa yaz, yoksa boş bırak. Başına rakam koyma)",
+                                "R71": "Üçüncü faaliyetin sorumlusu (C71 boş değilse İSG Birimi veya Üst İşveren yaz, boşsa boş bırak)"
                             }}
                             
                             'isaretlenecek_kutular' listesine ŞU KELİMELERDEN olaya en uygun olanları (en fazla 4 tane) seç:
@@ -286,7 +285,7 @@ else:
                                     for sebep in x_sebepler:
                                         if sebep in HUCRE_X_HARITASI:
                                             updates[HUCRE_X_HARITASI[sebep]] = "X"
-                                    
+                                            
                                     updates.update(ai_data)
                                     out_name = f"{isim.replace(' ', '_')}_Raporu.xlsx"
                                     update_excel_template(template_file, out_name, updates, kutular)

@@ -11,15 +11,17 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-# Oturum (Session) Hafızası Başlatma
+# Oturum Hafızası Başlatma
 if "islem_tamam" not in st.session_state:
     st.session_state.islem_tamam = False
 if "zip_path" not in st.session_state:
     st.session_state.zip_path = ""
+if "profil_adi" not in st.session_state:
+    st.session_state.profil_adi = ""
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
-if "giris_yapildi" not in st.session_state:
-    st.session_state.giris_yapildi = False
+
+os.makedirs("users_data", exist_ok=True)
 
 def extract_json(response_text):
     match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
@@ -119,35 +121,67 @@ st.title("🛡️ İSG Kök Neden Analizi Otomasyonu")
 
 with st.sidebar:
     st.header("⚙️ Profil ve Güvenli Ayarlar")
-    profil_adi = st.text_input("Profil Adınız (Adınızı yazıp Enter'a basın):", value="")
     
-    if profil_adi:
-        api_input = st.text_input("Gemini API Anahtarınız:", value=st.session_state.api_key, type="password")
+    # Form yapısı sayesinde bilgiler sıfırlanmaz
+    with st.form("profil_form"):
+        p_input = st.text_input("Profil Adınız:", value=st.session_state.profil_adi)
         
-        # KAYDET BUTONU EKLENDİ
-        if st.button("💾 API Anahtarını Kaydet"):
-            if api_input.strip() == "":
-                st.error("Lütfen boş bırakmayın!")
+        # Eğer profil ismi önceden kayıtlıysa anahtarını otomatik bulmaya çalış
+        default_key = st.session_state.api_key
+        if p_input.strip():
+            clean_name = p_input.strip().replace(' ', '_')
+            api_file = f"users_data/{clean_name}/api_key.txt"
+            if os.path.exists(api_file):
+                with open(api_file, "r") as f:
+                    saved_k = f.read().strip()
+                    if saved_k: default_key = saved_k
+                    
+        api_input = st.text_input("Gemini API Anahtarınız:", value=default_key, type="password")
+        
+        submit_btn = st.form_submit_button("💾 Bilgileri Kaydet / Giriş Yap")
+        
+        if submit_btn:
+            if not p_input.strip():
+                st.error("Lütfen profil adınızı girin!")
+            elif not api_input.strip():
+                st.error("Lütfen API anahtarınızı girin!")
             else:
-                st.session_state.api_key = api_input.strip()
-                st.success("API Anahtarı Başarıyla Kaydedildi!")
-                st.rerun()
+                clean_name = p_input.strip().replace(' ', '_')
+                user_folder = f"users_data/{clean_name}"
+                os.makedirs(user_folder, exist_ok=True)
+                api_file = f"{user_folder}/api_key.txt"
+                with open(api_file, "w") as f:
+                    f.write(api_input.strip())
                 
-        st.markdown("---")
-        if os.path.exists(MERKEZI_SABLON):
-            st.success("✅ Merkezi Şablon Sistemde Yüklü")
-        else:
-            st.error("⚠️ Merkezi Şablon (template.xlsx) Bulunamadı!")
+                st.session_state.profil_adi = p_input.strip()
+                st.session_state.api_key = api_input.strip()
+                st.success("Bilgiler başarıyla kaydedildi!")
+                st.rerun()
 
-if not profil_adi:
-    st.info("👈 Lütfen sol menüden Profil Adınızı girerek başlayın.")
+    # Form dışı otomatik yükleme kontrolü
+    if st.session_state.profil_adi and not st.session_state.api_key:
+        clean_name = st.session_state.profil_adi.replace(' ', '_')
+        api_file = f"users_data/{clean_name}/api_key.txt"
+        if os.path.exists(api_file):
+            with open(api_file, "r") as f:
+                saved_k = f.read().strip()
+                if saved_k: st.session_state.api_key = saved_k
+
+    st.markdown("---")
+    if os.path.exists(MERKEZI_SABLON):
+        st.success("✅ Merkezi Şablon Sistemde Yüklü")
+    else:
+        st.error("⚠️ Merkezi Şablon (template.xlsx) Bulunamadı!")
+
+if not st.session_state.profil_adi:
+    st.info("👈 Lütfen sol menüden Profil Adınızı girip **Bilgileri Kaydet / Giriş Yap** butonuna basın.")
 elif not st.session_state.api_key:
-    st.warning("👈 Lütfen sol menüden API anahtarınızı girip **💾 API Anahtarını Kaydet** butonuna basın.")
+    st.warning("👈 Lütfen sol menüden API anahtarınızı girip kaydedin.")
 else:
     if not os.path.exists(MERKEZI_SABLON):
         st.error("⚠️ Sistemde ana şablon ('template.xlsx') bulunamadı. Lütfen GitHub deposuna bu dosyayı yükleyin.")
     else:
-        st.write("### 📝 Kaza Verisi Yükle")
+        st.write(f"### 📝 Kaza Verisi Yükle (Aktif Profil: **{st.session_state.profil_adi}**)")
         data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel / .xlsm) Yükleyin", type=["xlsx", "xlsm"])
         
         if data_file:
@@ -214,7 +248,8 @@ else:
                         genai.configure(api_key=st.session_state.api_key)
                         model = genai.GenerativeModel('gemini-3.6-flash')
                         
-                        zip_filename = f"temp_reports/ISG_Raporlari_{profil_adi.replace(' ', '_')}.zip"
+                        clean_profil = st.session_state.profil_adi.replace(' ', '_')
+                        zip_filename = f"temp_reports/ISG_Raporlari_{clean_profil}.zip"
                         progress_bar = st.progress(0, text="Analiz başlatılıyor...")
                         
                         with zipfile.ZipFile(zip_filename, 'w') as zipf:

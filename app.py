@@ -109,7 +109,6 @@ def update_excel_template(template_path, output_path, updates_dict, labels_to_ch
             else:
                 zout.writestr(item.filename, zin.read(item.filename))
 
-# ANA ŞABLON YOLU (Github'daki ana klasörde bulunmalı)
 MERKEZI_SABLON = "template.xlsx"
 
 st.title("🛡️ İSG Kök Neden Analizi Otomasyonu")
@@ -141,7 +140,6 @@ with st.sidebar:
                 st.rerun()
         
         st.markdown("---")
-        # Merkezi şablon kontrolü
         if os.path.exists(MERKEZI_SABLON):
             st.success("✅ Merkezi Şablon Sistemde Yüklü")
         else:
@@ -160,7 +158,7 @@ else:
                 api_dolu = True
                 
     if not os.path.exists(MERKEZI_SABLON):
-        st.error("⚠️ Sistemde ana şablon ('template.xlsx') bulunamadı. Lütfen yöneticinizden GitHub deposuna bu dosyayı yüklemesini isteyin.")
+        st.error("⚠️ Sistemde ana şablon ('template.xlsx') bulunamadı. Lütfen GitHub deposuna bu dosyayı yükleyin.")
     elif not api_dolu:
         st.warning("👈 Lütfen sol menüden API anahtarınızı kaydedin.")
     else:
@@ -192,7 +190,8 @@ else:
                             api_key = f.read().strip()
                         
                         genai.configure(api_key=api_key)
-                        model = genai.GenerativeModel('gemini-2.5-flash')
+                        # MODEL GÜNCELLENDİ: Yeni hesaplarda hata vermemesi için gemini-3.6-flash yapıldı
+                        model = genai.GenerativeModel('gemini-3.6-flash')
                         
                         zip_filename = f"{user_folder}/ISG_Raporlari.zip"
                         progress_bar = st.progress(0, text="Analiz başlatılıyor...")
@@ -303,7 +302,6 @@ else:
                                                 
                                         updates.update(ai_data)
                                         out_name = f"{isim.replace(' ', '_')}_Raporu.xlsx"
-                                        # Şablon olarak artık merkezi dosyayı gönderiyoruz
                                         update_excel_template(MERKEZI_SABLON, out_name, updates, kutular)
                                         
                                         zipf.write(out_name)

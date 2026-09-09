@@ -13,7 +13,6 @@ st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_ico
 
 os.makedirs("users_data", exist_ok=True)
 
-# Oturum (Session) Hafızası - İndir butonunun kaybolmasını engeller
 if "islem_tamam" not in st.session_state:
     st.session_state.islem_tamam = False
 if "zip_path" not in st.session_state:
@@ -83,7 +82,6 @@ def safe_update_sheet1(sheet_xml, coord, new_value):
         end_idx = match.end() + end_match.end()
         
     attrs = re.sub(r'\s+t="[^"]*"', '', attrs)
-        
     safe_value = sanitize_text(new_value)
     new_cell = f'<{attrs} t="inlineStr"><is><t>{safe_value}</t></is></c>'
     
@@ -131,7 +129,6 @@ with st.sidebar:
                 
         new_api = st.text_input("Gemini API Anahtarınız:", value=current_api, type="password")
         
-        # YENİ EKLENEN BUTON: Kaydetme işlemini zorlar
         if st.button("💾 API Anahtarını Kaydet"):
             if new_api.strip() == "":
                 st.error("Lütfen geçerli bir anahtar girin!")
@@ -160,7 +157,6 @@ else:
     api_file = f"{user_folder}/api_key.txt"
     template_file = f"{user_folder}/template.xlsx"
     
-    # KONTROL DÜZELTİLDİ: Dosya sadece var mı diye değil, içi dolu mu diye de bakıyoruz.
     api_dolu = False
     if os.path.exists(api_file):
         with open(api_file, "r") as f:
@@ -183,7 +179,7 @@ else:
             
             for idx, row in df.iterrows():
                 isim = row.get('ADI SOYADI', f'Personel_{idx}')
-                kaza_turu = row.get('KAZA TÜRÜ', '')
+                kaza_turu = str(row.get('KAZA TÜRÜ', ''))
                 if st.checkbox(f"{isim} - {kaza_turu}", key=f"chk_{idx}"):
                     selected_indices.append(idx)
                     
@@ -207,6 +203,7 @@ else:
                             for i, idx in enumerate(selected_indices):
                                 row = df.loc[idx]
                                 isim = row.get('ADI SOYADI', f'Personel_{idx}')
+                                kaza_turu = str(row.get('KAZA TÜRÜ', ''))
                                 
                                 progress_bar.progress((i) / len(selected_indices), text=f"Analiz ediliyor: {isim} ({i+1}/{len(selected_indices)})")
                                 
@@ -224,14 +221,6 @@ else:
                                 kaza_ay = get_val(row, ['KAZA', 'TAR', 'AY'])
                                 kaza_yil = get_val(row, ['KAZA', 'TAR', 'YIL'])
                                 kaza_tarihi = f"{kaza_gun}.{kaza_ay}.{kaza_yil}" if kaza_gun else ""
-                                
-                                kaza_turu = str(get_val(row, ['KAZA', 'TÜRÜ'])).lower()
-                                kaza_turu_etiket = ""
-                                if 'ölüm' in kaza_turu: kaza_turu_etiket = "Ölüm"
-                                elif 'uzuv' in kaza_turu: kaza_turu_etiket = "Uzuv Kayıplı"
-                                elif 'tıbbi' in kaza_turu or 'ayakta' in kaza_turu or 'tedavi' in kaza_turu: kaza_turu_etiket = "Tıbbi Müdahale"
-                                elif 'hafif' in kaza_turu: kaza_turu_etiket = "Hafif Yaralanma"
-                                elif 'yaralanmasız' in kaza_turu or 'maddi' in kaza_turu: kaza_turu_etiket = "Yaralanmasız Kaza"
                                 
                                 rapor_tarihi_str = ""
                                 try:
@@ -258,6 +247,7 @@ else:
                                 Amacın aşağıdaki kaza verilerini irdeleyerek profesyonel bir rapor oluşturmak.
                                 
                                 Kaza Verileri: {row.to_dict()}
+                                Kaza Türü: {kaza_turu}
                                 
                                 ÖNEMLİ KURALLAR:
                                 1. Düzeltici faaliyetleri (DÖF) ASLA destan gibi uzun paragraflar halinde yazma. 
@@ -268,6 +258,7 @@ else:
                                 
                                 SADECE JSON döndür. JSON Şablonu:
                                 {{
+                                    "kaza_sonucu_kutusu": "Ölüm, Uzuv Kayıplı, Tıbbi Müdahale, Hafif Yaralanma, Yaralanmasız Kaza (Kaza türüne ve detaylara bakarak bu 5 seçenekten SADECE BİRİNİ buraya yaz)",
                                     "B9": "Kaza Olay Özeti: Olayın detaylarını anlatan resmi bir İSG açıklaması.",
                                     "L17": "Yaralanmanın vücuttaki tam yeri ve şiddeti.",
                                     "L19": "{kaza_tarihi}",
@@ -300,7 +291,12 @@ else:
                                         ai_data = extract_json(response.text)
                                         
                                         kutular = ai_data.pop("isaretlenecek_kutular", [])
-                                        if kaza_turu_etiket: kutular.append(kaza_turu_etiket)
+                                        
+                                        kaza_sonucu = ai_data.pop("kaza_sonucu_kutusu", "")
+                                        for key in ["Ölüm", "Uzuv Kayıplı", "Tıbbi Müdahale", "Hafif Yaralanma", "Yaralanmasız Kaza"]:
+                                            if key.lower() in str(kaza_sonucu).lower():
+                                                kutular.append(key)
+                                                break
                                         
                                         x_sebepler = ai_data.pop("x_yazilacak_sebepler", [])
                                         for sebep in x_sebepler:

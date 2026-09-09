@@ -11,8 +11,6 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-# --- KULLANICI HAFIZA YÖNETİMİ ---
-# Streamlit Cloud'da dosyaları tutmak için 'users_data' klasörü oluşturuyoruz
 if not os.path.exists("users_data"):
     os.makedirs("users_data")
 
@@ -41,6 +39,7 @@ def sanitize_text(text):
     text = re.sub(r'[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]', '', text)
     return saxutils.escape(text)
 
+# "Diğer..." KUTUCUĞU HARİTAYA EKLENDİ
 CHECKBOX_MAP = {
   "Ölüm": "xl/ctrlProps/ctrlProp1.xml", "Uzuv Kayıplı": "xl/ctrlProps/ctrlProp2.xml",
   "Tıbbi Müdahale": "xl/ctrlProps/ctrlProp3.xml", "Hafif Yaralanma": "xl/ctrlProps/ctrlProp4.xml",
@@ -52,7 +51,8 @@ CHECKBOX_MAP = {
   "Düşme": "xl/ctrlProps/ctrlProp71.xml", "İki Nesne Arasına Sıkışma": "xl/ctrlProps/ctrlProp74.xml",
   "Lider ve Yönetim": "xl/ctrlProps/ctrlProp36.xml", "Kişisel Koruyucu Donanım": "xl/ctrlProps/ctrlProp37.xml",
   "Görev Analizleri ve Prosedürleri": "xl/ctrlProps/ctrlProp42.xml", "Eksik / yetersiz talimat": "xl/ctrlProps/ctrlProp30.xml",
-  "Prosedür ve kuralların takip edilmemesi": "xl/ctrlProps/ctrlProp27.xml"
+  "Prosedür ve kuralların takip edilmemesi": "xl/ctrlProps/ctrlProp27.xml",
+  "Diğer...": "xl/ctrlProps/ctrlProp88.xml", "Diğer": "xl/ctrlProps/ctrlProp88.xml"
 }
 
 HUCRE_X_HARITASI = {
@@ -80,7 +80,6 @@ def safe_update_sheet1(sheet_xml, coord, new_value):
         
     attrs = re.sub(r'\s+t="[^"]*"', '', attrs)
     
-    # FORMAT KALKANI: Belirli hücrelerde stili sil (sola yaslı ve ince yazsın diye)
     if coord.startswith('L') or coord.startswith('B9') or coord.startswith('C69') or coord.startswith('C70') or coord.startswith('C71'):
         attrs = re.sub(r'\s+s="[^"]*"', '', attrs)
         
@@ -111,11 +110,8 @@ def update_excel_template(template_path, output_path, updates_dict, labels_to_ch
             else:
                 zout.writestr(item.filename, zin.read(item.filename))
 
-
-# --- ARAYÜZ TASARIMI ---
 st.title("🛡️ İSG Kök Neden Analizi Otomasyonu")
 
-# Kullanıcı Kimliği (Cookie mantığı yerine basit profil adı)
 with st.sidebar:
     st.header("⚙️ Profil ve Ayarlar")
     profil_adi = st.text_input("Profil Adınız (Sizi hatırlamamız için):", value="")
@@ -128,7 +124,6 @@ with st.sidebar:
         api_file = f"{user_folder}/api_key.txt"
         template_file = f"{user_folder}/template.xlsx"
         
-        # Mevcut API key okuma
         current_api = ""
         if os.path.exists(api_file):
             with open(api_file, "r") as f:
@@ -140,7 +135,6 @@ with st.sidebar:
                 f.write(new_api)
             st.success("API Anahtarı Kaydedildi!")
             
-        # Mevcut Şablon durumu
         if os.path.exists(template_file):
             st.success("✅ Şablon Yüklü")
         else:
@@ -153,7 +147,6 @@ with st.sidebar:
             st.success("Şablon başarıyla kaydedildi!")
             st.rerun()
 
-# ANA EKRAN
 if not profil_adi:
     st.info("👈 Lütfen sol menüden Profil Adınızı girerek başlayın.")
 else:
@@ -175,7 +168,6 @@ else:
             st.write("### 🔍 Analiz Edilecek Kazaları Seçin")
             selected_indices = []
             
-            # Checkbox tablosu
             for idx, row in df.iterrows():
                 isim = row.get('ADI SOYADI', f'Personel_{idx}')
                 kaza_turu = row.get('KAZA TÜRÜ', '')
@@ -203,7 +195,6 @@ else:
                             isim = row.get('ADI SOYADI', f'Personel_{idx}')
                             status_text.text(f"Analiz ediliyor: {isim} ({i+1}/{len(selected_indices)})")
                             
-                            # Veri Okuma
                             birim = get_val(row, ['BAĞLI', 'DAİRE'])
                             gorevi = get_val(row, ['GÖREVİ'])
                             ise_giris = get_val(row, ['İŞE', 'GİRİŞ'])
@@ -249,10 +240,14 @@ else:
                             
                             prompt = f"""
                             Sen ÜST DÜZEY bir İş Sağlığı ve Güvenliği (İSG) Uzmanısın ve Kök Neden Analizi konusunda profesyonelsin.
-                            Amacın aşağıdaki kaza verilerini YÜZEYSEL DEĞİL, çok derinlemesine irdeleyerek profesyonel bir rapor oluşturmak.
-                            DİKKAT: Düzeltici faaliyetleri çok uzun bir paragraf yerine, kısa, öz, sade ve anlaşılır cümleler halinde (madde madde) yazmalısın. Eğer faaliyet tek bir satıra sığmayacak kadar uzunsa, C70 ve C71 hücrelerini de kullan.
+                            Amacın aşağıdaki kaza verilerini irdeleyerek profesyonel bir rapor oluşturmak.
                             
                             Kaza Verileri: {row.to_dict()}
+                            
+                            ÖNEMLİ KURALLAR:
+                            1. Düzeltici faaliyetleri (DÖF) ASLA destan gibi uzun paragraflar halinde yazma. 
+                            2. Her bir DÖF tek bir satıra rahatça sığacak kadar KISA, SADE ve NET bir cümle olmalıdır. 
+                            3. Aynı cümleyi zorla satırlara bölme; C69, C70 ve C71 hücrelerine birbirinden tamamen BAĞIMSIZ ve FARKLI birer faaliyet maddesi yaz.
                             
                             SADECE JSON döndür. JSON Şablonu:
                             {{
@@ -265,15 +260,15 @@ else:
                                 "L27": "{gorevi}",
                                 "isaretlenecek_kutular": ["Seçilen Kutu 1"],
                                 "x_yazilacak_sebepler": ["Sebep 1"],
-                                "C69": "Düzeltici Önleyici Faaliyet (DÖF) Madde 1: Sade ve anlaşılır kısa bir önlem.",
-                                "C70": "Düzeltici Önleyici Faaliyet (DÖF) Madde 2 (Sadece gerekiyorsa, yoksa boş bırak)",
-                                "C71": "Düzeltici Önleyici Faaliyet (DÖF) Madde 3 (Sadece gerekiyorsa, yoksa boş bırak)",
+                                "C69": "1. Kısa ve net birinci düzeltici faaliyet.",
+                                "C70": "2. Kısa ve net ikinci düzeltici faaliyet (Gerekiyorsa yaz, yoksa boş bırak).",
+                                "C71": "3. Kısa ve net üçüncü düzeltici faaliyet (Gerekiyorsa yaz, yoksa boş bırak).",
                                 "R69": "İSG Birimi"
                             }}
                             
-                            'isaretlenecek_kutular' listesine ŞU KELİMELERDEN olaya en uygun olanları (en fazla 4 tane) seçip ekle:
+                            'isaretlenecek_kutular' listesine ŞU KELİMELERDEN olaya en uygun olanları (en fazla 4 tane) seç:
                             Hareketli Aksamlar, El Aletleri, Düşen Malzeme, Elle Taşıma, Yüksekten Düşme, Yakalanma / Kaptırma, Takılma, Kayma, Düşme, İki Nesne Arasına Sıkışma, Lider ve Yönetim, Kişisel Koruyucu Donanım, Görev Analizleri ve Prosedürleri, Eksik / yetersiz talimat, Prosedür ve kuralların takip edilmemesi.
-                            NOT: Eğer hiçbir kutu kazanın türüne uymuyorsa, listede olmasa bile "Diğer" kelimesini ekle.
+                            NOT: Eğer kazaya neden olan etmenler bu listedekilerden hiçbirine uymuyorsa, metin olarak açıklama YAPMA. SADECE "Diğer..." kelimesini listeye ekle.
                             
                             'x_yazilacak_sebepler' listesine ŞU KELİMELERDEN olaya en uygun Görünür ve Temel Sebepleri (en fazla 5 tane) seçip ekle:
                             Ekipmanı izinsiz kullanmak, KKD kullanımında ihmal, Prosedür ve kuralları takip etmemek, Dikkatsiz çalışma, Yetersiz veya uygunsuz KKD, Tehlikeli çevre koşulları: gazlar, tozlar, Yetersiz talimat olması, Yetersiz prosedür olması, Fiziksel uygunsuzluk, Zihinsel uygunsuzluk, Bilgi eksikliği, İşin gerektirdiği tecrübede eksiklik, Alışkanlıklar, Lider eksikliği, Görev tanımı yapılmaması, İş güvenliği kuralları yetersizliği, Beceri eksikliği, Fiziksel stres, Zihinsel stres, Yetersiz motivasyon, Uygunsuz davranış, Yaptırım yetersizliği, Denetim yetersizliği, Uygun olmayan görevlendirme

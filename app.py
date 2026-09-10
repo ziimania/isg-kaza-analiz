@@ -11,7 +11,7 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-# Oturum Hafızası Başlatma
+# Oturum Hafızası Başlatma (Güvenli, sunucuya dosya kaydetmez)
 if "islem_tamam" not in st.session_state:
     st.session_state.islem_tamam = False
 if "zip_path" not in st.session_state:
@@ -21,7 +21,7 @@ if "profil_adi" not in st.session_state:
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 
-os.makedirs("users_data", exist_ok=True)
+os.makedirs("temp_reports", exist_ok=True)
 
 def extract_json(response_text):
     match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
@@ -41,6 +41,15 @@ def get_val(row, keywords):
             val = row[col]
             return val if pd.notna(val) else ""
     return ""
+
+# TARİH FORMATLAYICI: 27.0'ı 27 yapar, tarih bozulmalarını engeller.
+def clean_date_part(val):
+    if pd.isna(val) or val == "":
+        return ""
+    try:
+        return str(int(float(val)))
+    except:
+        return str(val).strip()
 
 def sanitize_text(text):
     if pd.isna(text): return ""
@@ -115,57 +124,27 @@ def update_excel_template(template_path, output_path, updates_dict, labels_to_ch
                 zout.writestr(item.filename, zin.read(item.filename))
 
 MERKEZI_SABLON = "template.xlsx"
-os.makedirs("temp_reports", exist_ok=True)
 
 st.title("🛡️ İSG Kök Neden Analizi Otomasyonu")
 
 with st.sidebar:
-    st.header("⚙️ Profil ve Güvenli Ayarlar")
+    st.header("⚙️ Profil ve Güvenli Giriş")
     
-    # Form yapısı sayesinde bilgiler sıfırlanmaz
+    # Form yapısı: Bilgiler sadece tarayıcının kendi şifre yöneticisine kaydedilir
     with st.form("profil_form"):
-        p_input = st.text_input("Profil Adınız:", value=st.session_state.profil_adi)
+        p_isim = st.text_input("Profil Adınız:", value=st.session_state.profil_adi)
+        p_api = st.text_input("Gemini API Anahtarınız:", value=st.session_state.api_key, type="password")
         
-        # Eğer profil ismi önceden kayıtlıysa anahtarını otomatik bulmaya çalış
-        default_key = st.session_state.api_key
-        if p_input.strip():
-            clean_name = p_input.strip().replace(' ', '_')
-            api_file = f"users_data/{clean_name}/api_key.txt"
-            if os.path.exists(api_file):
-                with open(api_file, "r") as f:
-                    saved_k = f.read().strip()
-                    if saved_k: default_key = saved_k
-                    
-        api_input = st.text_input("Gemini API Anahtarınız:", value=default_key, type="password")
-        
-        submit_btn = st.form_submit_button("💾 Bilgileri Kaydet / Giriş Yap")
+        submit_btn = st.form_submit_button("💾 Giriş Yap")
         
         if submit_btn:
-            if not p_input.strip():
-                st.error("Lütfen profil adınızı girin!")
-            elif not api_input.strip():
-                st.error("Lütfen API anahtarınızı girin!")
+            if not p_isim.strip() or not p_api.strip():
+                st.error("Lütfen adınızı ve API anahtarınızı girin!")
             else:
-                clean_name = p_input.strip().replace(' ', '_')
-                user_folder = f"users_data/{clean_name}"
-                os.makedirs(user_folder, exist_ok=True)
-                api_file = f"{user_folder}/api_key.txt"
-                with open(api_file, "w") as f:
-                    f.write(api_input.strip())
-                
-                st.session_state.profil_adi = p_input.strip()
-                st.session_state.api_key = api_input.strip()
-                st.success("Bilgiler başarıyla kaydedildi!")
+                st.session_state.profil_adi = p_isim.strip()
+                st.session_state.api_key = p_api.strip()
+                st.success("Giriş Başarılı! (Tarayıcınız şifrenizi kaydetmeyi sorabilir)")
                 st.rerun()
-
-    # Form dışı otomatik yükleme kontrolü
-    if st.session_state.profil_adi and not st.session_state.api_key:
-        clean_name = st.session_state.profil_adi.replace(' ', '_')
-        api_file = f"users_data/{clean_name}/api_key.txt"
-        if os.path.exists(api_file):
-            with open(api_file, "r") as f:
-                saved_k = f.read().strip()
-                if saved_k: st.session_state.api_key = saved_k
 
     st.markdown("---")
     if os.path.exists(MERKEZI_SABLON):
@@ -173,15 +152,13 @@ with st.sidebar:
     else:
         st.error("⚠️ Merkezi Şablon (template.xlsx) Bulunamadı!")
 
-if not st.session_state.profil_adi:
-    st.info("👈 Lütfen sol menüden Profil Adınızı girip **Bilgileri Kaydet / Giriş Yap** butonuna basın.")
-elif not st.session_state.api_key:
-    st.warning("👈 Lütfen sol menüden API anahtarınızı girip kaydedin.")
+if not st.session_state.profil_adi or not st.session_state.api_key:
+    st.info("👈 Lütfen sol menüden bilgilerinizi doldurup **Giriş Yap** butonuna basın.")
 else:
     if not os.path.exists(MERKEZI_SABLON):
         st.error("⚠️ Sistemde ana şablon ('template.xlsx') bulunamadı. Lütfen GitHub deposuna bu dosyayı yükleyin.")
     else:
-        st.write(f"### 📝 Kaza Verisi Yükle (Aktif Profil: **{st.session_state.profil_adi}**)")
+        st.write(f"### 📝 Kaza Verisi Yükle (Aktif Kullanıcı: **{st.session_state.profil_adi}**)")
         data_file = st.file_uploader("Doldurulmuş Kaza Listesini (Excel / .xlsm) Yükleyin", type=["xlsx", "xlsm"])
         
         if data_file:
@@ -262,17 +239,22 @@ else:
                                 
                                 birim = get_val(row, ['BAĞLI', 'DAİRE'])
                                 gorevi = get_val(row, ['GÖREVİ'])
-                                ise_giris = get_val(row, ['İŞE', 'GİRİŞ'])
-                                if not ise_giris: ise_giris = "-"
                                 
-                                dogum_gun = get_val(row, ['DOĞUM', 'GÜN'])
-                                dogum_ay = get_val(row, ['DOĞUM', 'AY'])
-                                dogum_yil = get_val(row, ['DOĞUM', 'YIL'])
+                                # Tarih temizliklerini burada uyguluyoruz
+                                ise_giris = get_val(row, ['İŞE', 'GİRİŞ'])
+                                if isinstance(ise_giris, pd.Timestamp) or isinstance(ise_giris, datetime.datetime):
+                                    ise_giris = ise_giris.strftime("%d.%m.%Y")
+                                elif not ise_giris: 
+                                    ise_giris = "-"
+                                
+                                dogum_gun = clean_date_part(get_val(row, ['DOĞUM', 'GÜN']))
+                                dogum_ay = clean_date_part(get_val(row, ['DOĞUM', 'AY']))
+                                dogum_yil = clean_date_part(get_val(row, ['DOĞUM', 'YIL']))
                                 dogum_tarihi = f"{dogum_gun}.{dogum_ay}.{dogum_yil}" if dogum_gun else ""
                                 
-                                kaza_gun = get_val(row, ['KAZA', 'TAR', 'GÜN'])
-                                kaza_ay = get_val(row, ['KAZA', 'TAR', 'AY'])
-                                kaza_yil = get_val(row, ['KAZA', 'TAR', 'YIL'])
+                                kaza_gun = clean_date_part(get_val(row, ['KAZA', 'TAR', 'GÜN']))
+                                kaza_ay = clean_date_part(get_val(row, ['KAZA', 'TAR', 'AY']))
+                                kaza_yil = clean_date_part(get_val(row, ['KAZA', 'TAR', 'YIL']))
                                 kaza_tarihi = f"{kaza_gun}.{kaza_ay}.{kaza_yil}" if kaza_gun else ""
                                 
                                 rapor_tarihi_str = ""

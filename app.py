@@ -11,15 +11,15 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="İSG Kök Neden Analizi", layout="wide", page_icon="🛡️")
 
-# Oturum Hafızası Başlatma (Güvenli, sunucuya dosya kaydetmez)
+# URL Çerezlerinden (Query Params) oturum hafızasını çekme ve başlatma
+if "profil_adi" not in st.session_state:
+    st.session_state.profil_adi = st.query_params.get("p", "")
+if "api_key" not in st.session_state:
+    st.session_state.api_key = st.query_params.get("k", "")
 if "islem_tamam" not in st.session_state:
     st.session_state.islem_tamam = False
 if "zip_path" not in st.session_state:
     st.session_state.zip_path = ""
-if "profil_adi" not in st.session_state:
-    st.session_state.profil_adi = ""
-if "api_key" not in st.session_state:
-    st.session_state.api_key = ""
 
 os.makedirs("temp_reports", exist_ok=True)
 
@@ -42,8 +42,8 @@ def get_val(row, keywords):
             return val if pd.notna(val) else ""
     return ""
 
-# TARİH FORMATLAYICI: 27.0'ı 27 yapar, tarih bozulmalarını engeller.
-def clean_date_part(val):
+# TARİH VE FİLTRE TEMİZLEYİCİ: .0 ondalıklarını siler, tam sayıya çevirir.
+def clean_number_str(val):
     if pd.isna(val) or val == "":
         return ""
     try:
@@ -130,7 +130,6 @@ st.title("🛡️ İSG Kök Neden Analizi Otomasyonu")
 with st.sidebar:
     st.header("⚙️ Profil ve Güvenli Giriş")
     
-    # Form yapısı: Bilgiler sadece tarayıcının kendi şifre yöneticisine kaydedilir
     with st.form("profil_form"):
         p_isim = st.text_input("Profil Adınız:", value=st.session_state.profil_adi)
         p_api = st.text_input("Gemini API Anahtarınız:", value=st.session_state.api_key, type="password")
@@ -143,7 +142,12 @@ with st.sidebar:
             else:
                 st.session_state.profil_adi = p_isim.strip()
                 st.session_state.api_key = p_api.strip()
-                st.success("Giriş Başarılı! (Tarayıcınız şifrenizi kaydetmeyi sorabilir)")
+                
+                # Gizli URL Çerezi oluştur (Sayfa yenilense bile veriler URL'den geri çekilir)
+                st.query_params["p"] = p_isim.strip()
+                st.query_params["k"] = p_api.strip()
+                
+                st.success("Giriş Başarılı!")
                 st.rerun()
 
     st.markdown("---")
@@ -188,10 +192,12 @@ else:
                     
             with col_ay:
                 if ay_col_name:
-                    unique_aylar = sorted(df[ay_col_name].dropna().astype(str).unique())
+                    # Filtre menüsünde .0'ları temizlemek için geçici sütun oluşturuyoruz
+                    temp_ay_col = filtered_df[ay_col_name].apply(clean_number_str)
+                    unique_aylar = sorted(temp_ay_col[temp_ay_col != ""].unique())
                     secilen_aylar = st.multiselect("Kaza Tarihi (Ay)", unique_aylar, default=[])
                     if secilen_aylar:
-                        filtered_df = filtered_df[filtered_df[ay_col_name].astype(str).isin(secilen_aylar)]
+                        filtered_df = filtered_df[temp_ay_col.isin(secilen_aylar)]
                 else:
                     st.info("Kaza Ayı sütunu bulunamadı.")
                     
@@ -240,21 +246,21 @@ else:
                                 birim = get_val(row, ['BAĞLI', 'DAİRE'])
                                 gorevi = get_val(row, ['GÖREVİ'])
                                 
-                                # Tarih temizliklerini burada uyguluyoruz
                                 ise_giris = get_val(row, ['İŞE', 'GİRİŞ'])
                                 if isinstance(ise_giris, pd.Timestamp) or isinstance(ise_giris, datetime.datetime):
                                     ise_giris = ise_giris.strftime("%d.%m.%Y")
                                 elif not ise_giris: 
                                     ise_giris = "-"
                                 
-                                dogum_gun = clean_date_part(get_val(row, ['DOĞUM', 'GÜN']))
-                                dogum_ay = clean_date_part(get_val(row, ['DOĞUM', 'AY']))
-                                dogum_yil = clean_date_part(get_val(row, ['DOĞUM', 'YIL']))
+                                # Tarihlerdeki .0 kısımlarını temizleme işlemi
+                                dogum_gun = clean_number_str(get_val(row, ['DOĞUM', 'GÜN']))
+                                dogum_ay = clean_number_str(get_val(row, ['DOĞUM', 'AY']))
+                                dogum_yil = clean_number_str(get_val(row, ['DOĞUM', 'YIL']))
                                 dogum_tarihi = f"{dogum_gun}.{dogum_ay}.{dogum_yil}" if dogum_gun else ""
                                 
-                                kaza_gun = clean_date_part(get_val(row, ['KAZA', 'TAR', 'GÜN']))
-                                kaza_ay = clean_date_part(get_val(row, ['KAZA', 'TAR', 'AY']))
-                                kaza_yil = clean_date_part(get_val(row, ['KAZA', 'TAR', 'YIL']))
+                                kaza_gun = clean_number_str(get_val(row, ['KAZA', 'TAR', 'GÜN']))
+                                kaza_ay = clean_number_str(get_val(row, ['KAZA', 'TAR', 'AY']))
+                                kaza_yil = clean_number_str(get_val(row, ['KAZA', 'TAR', 'YIL']))
                                 kaza_tarihi = f"{kaza_gun}.{kaza_ay}.{kaza_yil}" if kaza_gun else ""
                                 
                                 rapor_tarihi_str = ""
